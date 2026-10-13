@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ポケモン交換会 サムネイル作成ツール</title>
+  <!-- cssフォルダ配下のスタイルシートを参照 -->
+  <link rel="stylesheet" href="css/style.css">
+  <!-- ZIP解凍用ライブラリ (JSZip) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</head>
+<body>
+
+  <!-- 設定パネル -->
+  <div class="sidebar">
+    <!-- 設定ファイルの保存 / 読み込みボタン -->
+    <div class="config-action-area">
+      <button class="btn-config" onclick="exportConfig()">⚙️ 設定保存 (config.json)</button>
+      <button class="btn-config" onclick="document.getElementById('configFileInput').click()">📂 設定読込 (.json)</button>
+      <input type="file" id="configFileInput" accept=".json" style="display: none;" onchange="importConfig(this.files[0])">
+    </div>
+
+    <!-- ZIP一括読み込み＆ドラッグアンドドロップエリア (ZIPとJSON両方対応) -->
+    <div class="zip-drop-zone" id="dropZone" onclick="document.getElementById('zipFileInput').click()">
+      <p>📦 ZIP または JSON をここにドロップ</p>
+      <span>またはクリックしてファイルを選択<br>(画像ZIP、または設定config.jsonをまとめてD&D可能)</span>
+      <input type="file" id="zipFileInput" accept=".zip,.json" style="display: none;" onchange="handleFilesUpload(this.files)">
+    </div>
+
+    <div class="tab-header">
+      <button class="tab-btn active" onclick="switchTab('tab-bg', event)">外枠・背景</button>
+      <button class="tab-btn" onclick="switchTab('tab-logo', event)">ロゴ</button>
+      <button class="tab-btn" onclick="switchTab('tab-title', event)">タイトル</button>
+      <button class="tab-btn" onclick="switchTab('tab-pokemon', event)">ポケモン設定</button>
+    </div>
+
+    <!-- 1. 外枠・背景設定 -->
+    <div id="tab-bg" class="tab-content active">
+      <div class="form-group">
+        <label>背景画像選択 (back)</label>
+        <select id="bgSelect" class="form-control" onchange="updateCanvas()"></select>
+      </div>
+      <hr class="separator">
+      <div class="form-group">
+        <label>外枠のモード</label>
+        <select id="borderMode" class="form-control" onchange="updateCanvas()">
+          <option value="single">1色のみ</option>
+          <option value="gradient" selected>2色グラデーション</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>外枠の太さ (px)</label>
+        <input type="number" id="borderWidth" class="form-control" value="20" min="0" max="100" oninput="updateCanvas()">
+      </div>
+      <div class="row">
+        <div class="col form-group">
+          <label>枠色 1</label>
+          <div class="color-picker-group">
+            <input type="color" id="borderColor1" value="#c026d3" onchange="syncColorInput('borderColor1', 'borderColor1Text'); updateCanvas();">
+            <input type="text" id="borderColor1Text" class="form-control" value="#C026D3" oninput="syncColorPicker('borderColor1Text', 'borderColor1'); updateCanvas();">
+          </div>
+        </div>
+        <div class="col form-group">
+          <label>枠色 2</label>
+          <div class="color-picker-group">
+            <input type="color" id="borderColor2" value="#2563eb" onchange="syncColorInput('borderColor2', 'borderColor2Text'); updateCanvas();">
+            <input type="text" id="borderColor2Text" class="form-control" value="#2563EB" oninput="syncColorPicker('borderColor2Text', 'borderColor2'); updateCanvas();">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. ロゴ設定 -->
+    <div id="tab-logo" class="tab-content">
+      <div id="logoContainer"></div>
+      <button class="btn btn-secondary" style="width: 100%;" onclick="addLogoSlot()">+ ロゴを追加</button>
+    </div>
+
+    <!-- 3. タイトル設定 -->
+    <div id="tab-title" class="tab-content">
+      <div class="form-group">
+        <label>配信タイトル文字</label>
+        <input type="text" id="titleText" class="form-control" value="色違い配布交換会" oninput="updateCanvas()">
+      </div>
+      <div class="form-group">
+        <label>フォント</label>
+        <select id="titleFont" class="form-control" onchange="updateCanvas()">
+          <option value="sans-serif">ゴシック体 (sans-serif)</option>
+          <option value="serif">明朝体 (serif)</option>
+          <option value="'Impact', sans-serif">Impact (太字)</option>
+        </select>
+      </div>
+      <div class="row">
+        <div class="col form-group">
+          <label>文字サイズ (px)</label>
+          <input type="number" id="titleSize" class="form-control" value="70" oninput="updateCanvas()">
+        </div>
+      </div>
+
+      <!-- 文字色モード（単色 or 上下グラデーション） -->
+      <div class="form-group">
+        <label>文字色モード</label>
+        <select id="titleColorMode" class="form-control" onchange="toggleTitleColorMode(); updateCanvas();">
+          <option value="solid" selected>単色</option>
+          <option value="gradient">上下グラデーション</option>
+        </select>
+      </div>
+      <div id="titleSolidColorBox" class="form-group">
+        <label>文字色</label>
+        <div class="color-picker-group">
+          <input type="color" id="titleColor" value="#facc15" onchange="syncColorInput('titleColor', 'titleColorText'); updateCanvas();">
+          <input type="text" id="titleColorText" class="form-control" value="#FACC15" oninput="syncColorPicker('titleColorText', 'titleColor'); updateCanvas();">
+        </div>
+      </div>
+      <div id="titleGradColorBox" class="row" style="display: none;">
+        <div class="col form-group">
+          <label>上部カラー</label>
+          <div class="color-picker-group">
+            <input type="color" id="titleColorTop" value="#ffffff" onchange="syncColorInput('titleColorTop', 'titleColorTopText'); updateCanvas();">
+            <input type="text" id="titleColorTopText" class="form-control" value="#FFFFFF" oninput="syncColorPicker('titleColorTopText', 'titleColorTop'); updateCanvas();">
+          </div>
+        </div>
+        <div class="col form-group">
+          <label>下部カラー</label>
+          <div class="color-picker-group">
+            <input type="color" id="titleColorBottom" value="#facc15" onchange="syncColorInput('titleColorBottom', 'titleColorBottomText'); updateCanvas();">
+            <input type="text" id="titleColorBottomText" class="form-control" value="#FACC15" oninput="syncColorPicker('titleColorBottomText', 'titleColorBottom'); updateCanvas();">
+          </div>
+        </div>
+      </div>
+
+      <hr class="separator">
+
+      <!-- 縁取り設定（一重 or 二重） -->
+      <div class="form-group">
+        <label>縁取りモード</label>
+        <select id="strokeMode" class="form-control" onchange="toggleStrokeMode(); updateCanvas();">
+          <option value="none">なし</option>
+          <option value="single" selected>一重縁取り</option>
+          <option value="double">二重縁取り</option>
+        </select>
+      </div>
+
+      <!-- 一重縁取り用設定 -->
+      <div id="singleStrokeBox">
+        <div class="row">
+          <div class="col form-group">
+            <label>縁取り色</label>
+            <div class="color-picker-group">
+              <input type="color" id="strokeColor" value="#dc2626" onchange="syncColorInput('strokeColor', 'strokeColorText'); updateCanvas();">
+              <input type="text" id="strokeColorText" class="form-control" value="#DC2626" oninput="syncColorPicker('strokeColorText', 'strokeColor'); updateCanvas();">
+            </div>
+          </div>
+          <div class="col form-group">
+            <label>縁取り太さ</label>
+            <input type="number" id="strokeWidth" class="form-control" value="12" min="0" oninput="updateCanvas()">
+          </div>
+        </div>
+      </div>
+
+      <!-- 二重縁取り用設定 -->
+      <div id="doubleStrokeBox" style="display: none;">
+        <div class="row">
+          <div class="col form-group">
+            <label>内側 縁取り色</label>
+            <div class="color-picker-group">
+              <input type="color" id="strokeColorInner" value="#ffffff" onchange="syncColorInput('strokeColorInner', 'strokeColorInnerText'); updateCanvas();">
+              <input type="text" id="strokeColorInnerText" class="form-control" value="#FFFFFF" oninput="syncColorPicker('strokeColorInnerText', 'strokeColorInner'); updateCanvas();">
+            </div>
+          </div>
+          <div class="col form-group">
+            <label>内側 太さ</label>
+            <input type="number" id="strokeWidthInner" class="form-control" value="6" min="0" oninput="updateCanvas()">
+          </div>
+        </div>
+        <div class="row">
+          <div class="col form-group">
+            <label>外側 縁取り色</label>
+            <div class="color-picker-group">
+              <input type="color" id="strokeColorOuter" value="#dc2626" onchange="syncColorInput('strokeColorOuter', 'strokeColorOuterText'); updateCanvas();">
+              <input type="text" id="strokeColorOuterText" class="form-control" value="#DC2626" oninput="syncColorPicker('strokeColorOuterText', 'strokeColorOuter'); updateCanvas();">
+            </div>
+          </div>
+          <div class="col form-group">
+            <label>外側 太さ</label>
+            <input type="number" id="strokeWidthOuter" class="form-control" value="14" min="0" oninput="updateCanvas()">
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- 4. ポケモン・ボール・アイコンスロット -->
+    <div id="tab-pokemon" class="tab-content">
+      <div id="pokemonSlotsContainer"></div>
+      <button class="btn btn-secondary" style="width: 100%;" onclick="addPokemonSlot()">+ ポケモンスロットを追加</button>
+    </div>
+  </div>
+
+  <!-- プレビューと操作エリア -->
+  <div class="main-content">
+    <div class="hint-box">
+      💡 入力欄に直接文字を入力すると、候補ファイル名（ポケモン名など）が絞り込まれて簡単に検索・選択できます！
+    </div>
+    <div class="canvas-container">
+      <canvas id="thumbnailCanvas" width="1280" height="720"></canvas>
+    </div>
+    <div class="action-bar">
+      <button class="btn btn-primary" onclick="saveImage()">画像を保存 (ダイアログ表示)</button>
+    </div>
+  </div>
+
+  <!-- jsフォルダ配下のメインスクリプトを参照 -->
+  <script src="js/main.js" defer></script>
+</body>
+</html>
