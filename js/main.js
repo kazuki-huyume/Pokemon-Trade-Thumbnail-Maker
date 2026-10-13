@@ -21,6 +21,7 @@ function loadImage(src) {
 
 let logoList = [{ file: 'none', x: 60, y: 50, scale: 1.0 }];
 let pokemonList = [{ pokemon: 'none', ball: 'none', etc: 'none', x: 400, y: 300, scale: 1.0 }];
+let titleConfig = { x: 1240, y: 40 }; // 初期位置 (右上の基準)
 
 let isDragging = false;
 let dragTarget = null;
@@ -197,6 +198,10 @@ function applyConfig(config) {
     }));
   }
 
+  if (config.titleX !== undefined && config.titleY !== undefined) {
+    titleConfig = { x: config.titleX, y: config.titleY };
+  }
+
   renderLogoSlots();
   renderPokemonSlots();
 
@@ -303,7 +308,6 @@ window.onSearchableSelectChange = function(category, slotIndex, subKey, typedVal
   updateCanvas();
 };
 
-// --- 設定ファイルのダイアログ保存処理 ---
 async function exportConfig() {
   const getFileName = (category, url) => {
     if (!url || url === 'none') return 'none';
@@ -346,6 +350,8 @@ async function exportConfig() {
     strokeWidthInner: document.getElementById('strokeWidthInner').value,
     strokeColorOuter: document.getElementById('strokeColorOuter').value,
     strokeWidthOuter: document.getElementById('strokeWidthOuter').value,
+    titleX: titleConfig.x,
+    titleY: titleConfig.y,
     logoList: exportLogoList,
     pokemonList: exportPokemonList
   };
@@ -364,11 +370,10 @@ async function exportConfig() {
       await writable.close();
       return;
     } catch (err) {
-      if (err.name === 'AbortError') return; // キャンセル時は何もしない
+      if (err.name === 'AbortError') return;
     }
   }
 
-  // フォールバック（API非対応ブラウザ用）
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
   link.download = 'thumbnail_config.json';
@@ -549,12 +554,19 @@ async function updateCanvas() {
   if (title) {
     const fontSize = parseInt(document.getElementById('titleSize').value) || 70;
     const font = document.getElementById('titleFont').value;
-    const textX = canvas.width - 40;
-    const textY = 40;
-
+    
     ctx.font = `bold ${fontSize}px ${font}`;
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
+
+    // 当たり判定用にテキストの幅を計測
+    const metrics = ctx.measureText(title);
+    const textWidth = metrics.width;
+    const textHeight = fontSize;
+
+    // titleConfig.x, y は右上の基準位置として扱うため、バウンディングボックスの左上座標に変換してヒットボックス登録
+    const boxX = titleConfig.x - textWidth;
+    const boxY = titleConfig.y;
 
     const strokeMode = document.getElementById('strokeMode').value;
 
@@ -566,7 +578,7 @@ async function updateCanvas() {
         ctx.strokeStyle = sColor;
         ctx.lineWidth = sWidth;
         ctx.lineJoin = 'round';
-        ctx.strokeText(title, textX, textY);
+        ctx.strokeText(title, titleConfig.x, titleConfig.y);
       }
     } else if (strokeMode === 'double') {
       const innerColor = document.getElementById('strokeColorInner').value;
@@ -574,37 +586,44 @@ async function updateCanvas() {
       const outerColor = document.getElementById('strokeColorOuter').value;
       const outerWidth = parseInt(document.getElementById('strokeWidthOuter').value) || 0;
 
-      // 外側
       if (outerWidth > 0) {
         ctx.strokeStyle = outerColor;
         ctx.lineWidth = outerWidth + innerWidth;
         ctx.lineJoin = 'round';
-        ctx.strokeText(title, textX, textY);
+        ctx.strokeText(title, titleConfig.x, titleConfig.y);
       }
-      // 内側
       if (innerWidth > 0) {
         ctx.strokeStyle = innerColor;
         ctx.lineWidth = innerWidth;
         ctx.lineJoin = 'round';
-        ctx.strokeText(title, textX, textY);
+        ctx.strokeText(title, titleConfig.x, titleConfig.y);
       }
     }
 
-    // 2. メイン文字色の描画（単色 or 上下グラデーション）
+    // 2. メイン文字色の描画
     const colorMode = document.getElementById('titleColorMode').value;
     if (colorMode === 'solid') {
       ctx.fillStyle = document.getElementById('titleColor').value;
-      ctx.fillText(title, textX, textY);
+      ctx.fillText(title, titleConfig.x, titleConfig.y);
     } else if (colorMode === 'gradient') {
       const topColor = document.getElementById('titleColorTop').value;
       const bottomColor = document.getElementById('titleColorBottom').value;
-      const grad = ctx.createLinearGradient(0, textY, 0, textY + fontSize);
+      const grad = ctx.createLinearGradient(0, titleConfig.y, 0, titleConfig.y + fontSize);
       grad.addColorStop(0, topColor);
       grad.addColorStop(1, bottomColor);
 
       ctx.fillStyle = grad;
-      ctx.fillText(title, textX, textY);
+      ctx.fillText(title, titleConfig.x, titleConfig.y);
     }
+
+    // タイトル移動用のヒットボックスを登録（余白を持たせて掴みやすくする）
+    newHitBoxes.push({
+      type: 'title',
+      x: boxX - 10,
+      y: boxY - 5,
+      w: textWidth + 20,
+      h: textHeight + 10
+    });
   }
 
   // --- 外枠描画 ---
@@ -642,8 +661,14 @@ function setupDragEvents() {
       if (mouseX >= box.x && mouseX <= box.x + box.w && mouseY >= box.y && mouseY <= box.y + box.h) {
         isDragging = true;
         dragTarget = { type: box.type, index: box.index };
-        dragOffsetX = mouseX - box.x;
-        dragOffsetY = mouseY - box.y;
+        if (box.type === 'title') {
+          // タイトルの場合はマウス位置と基準位置(titleConfig)の差分を保持
+          dragOffsetX = titleConfig.x - mouseX;
+          dragOffsetY = titleConfig.y - mouseY;
+        } else {
+          dragOffsetX = mouseX - box.x;
+          dragOffsetY = mouseY - box.y;
+        }
         return;
       }
     }
@@ -657,7 +682,10 @@ function setupDragEvents() {
     const mouseX = (e.clientX - rect.left) * scaleX;
     const mouseY = (e.clientY - rect.top) * scaleY;
 
-    if (dragTarget.type === 'logo') {
+    if (dragTarget.type === 'title') {
+      titleConfig.x = mouseX + dragOffsetX;
+      titleConfig.y = mouseY + dragOffsetY;
+    } else if (dragTarget.type === 'logo') {
       logoList[dragTarget.index].x = mouseX - dragOffsetX;
       logoList[dragTarget.index].y = mouseY - dragOffsetY;
     } else if (dragTarget.type === 'pokemon') {
