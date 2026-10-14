@@ -1,6 +1,7 @@
 # Pokemon-Trade-Thumbnail-Maker
 
 ポケモン交換会のサムネイルを作成するWebアプリです。使い方次第では通常のサムネイルも直感的な操作で作成できます。
+https://kazuki-huyume.github.io/Pokemon-Trade-Thumbnail-Maker/
 
 ## 概要
 
