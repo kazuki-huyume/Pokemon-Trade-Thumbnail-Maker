@@ -1,5 +1,5 @@
 const loadedFiles = {
-  back: [], logo: [], pokemon: [], ball: [], etc: []
+  back: [], logo: [], pokemon: [], ball: [], etc: [], font: []
 };
 
 let pendingConfig = null;
@@ -21,7 +21,26 @@ function loadImage(src) {
 
 let logoList = [{ file: 'none', x: 60, y: 50, scale: 1.0 }];
 let pokemonList = [{ pokemon: 'none', ball: 'none', etc: 'none', x: 400, y: 300, scale: 1.0 }];
-let titleConfig = { x: 1240, y: 40 }; // 初期位置 (右上の基準)
+let titleList = [
+  {
+    text: '色違い配布交換会',
+    font: 'sans-serif',
+    size: 70,
+    colorMode: 'solid',
+    color: '#facc15',
+    colorTop: '#ffffff',
+    colorBottom: '#facc15',
+    strokeMode: 'single',
+    strokeColor: '#dc2626',
+    strokeWidth: 12,
+    strokeColorInner: '#ffffff',
+    strokeWidthInner: 6,
+    strokeColorOuter: '#dc2626',
+    strokeWidthOuter: 14,
+    x: 1240,
+    y: 40
+  }
+];
 
 let isDragging = false;
 let dragTarget = null;
@@ -30,9 +49,8 @@ let currentHitBoxes = [];
 
 window.addEventListener('DOMContentLoaded', () => {
   renderLogoSlots();
+  renderTitleSlots();
   renderPokemonSlots();
-  toggleTitleColorMode();
-  toggleStrokeMode();
   updateCanvas();
   setupDragEvents();
   setupDropZone();
@@ -43,18 +61,6 @@ function switchTab(tabId, evt) {
   document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
   evt.target.classList.add('active');
   document.getElementById(tabId).classList.add('active');
-}
-
-function toggleTitleColorMode() {
-  const mode = document.getElementById('titleColorMode').value;
-  document.getElementById('titleSolidColorBox').style.display = (mode === 'solid') ? 'block' : 'none';
-  document.getElementById('titleGradColorBox').style.display = (mode === 'gradient') ? 'flex' : 'none';
-}
-
-function toggleStrokeMode() {
-  const mode = document.getElementById('strokeMode').value;
-  document.getElementById('singleStrokeBox').style.display = (mode === 'single') ? 'block' : 'none';
-  document.getElementById('doubleStrokeBox').style.display = (mode === 'double') ? 'block' : 'none';
 }
 
 function syncColorInput(pickerId, textId) {
@@ -119,7 +125,9 @@ async function handleFilesUpload(fileList) {
 async function processZipFile(file) {
   try {
     const zip = await JSZip.loadAsync(file);
-    Object.keys(loadedFiles).forEach(key => loadedFiles[key] = []);
+    Object.keys(loadedFiles).forEach(key => {
+      if (key !== 'font') loadedFiles[key] = [];
+    });
 
     for (const [filename, zipObj] of Object.entries(zip.files)) {
       if (zipObj.dir) continue;
@@ -131,15 +139,21 @@ async function processZipFile(file) {
       else if (lower.includes('pokemon/')) category = 'pokemon';
       else if (lower.includes('ball/')) category = 'ball';
       else if (lower.includes('etc/')) category = 'etc';
+      else if (lower.includes('font/')) category = 'font';
 
       if (category) {
         const blob = await zipObj.async('blob');
         const cleanName = filename.split('/').pop();
         if (cleanName && !cleanName.startsWith('.')) {
+          const url = URL.createObjectURL(blob);
           loadedFiles[category].push({
             name: cleanName,
-            url: URL.createObjectURL(blob)
+            url: url
           });
+
+          if (category === 'font') {
+            registerCustomFont(cleanName, url);
+          }
         }
       }
     }
@@ -148,11 +162,25 @@ async function processZipFile(file) {
     bgSelect.innerHTML = loadedFiles.back.map(f => `<option value="${f.url}">${f.name}</option>`).join('');
 
     renderLogoSlots();
+    renderTitleSlots();
     renderPokemonSlots();
     updateCanvas();
   } catch (err) {
     console.error(err);
     alert('ZIPファイルの解凍に失敗しました。');
+  }
+}
+
+async function registerCustomFont(fontFileName, fontUrl) {
+  const fontName = fontFileName.replace(/\.[^/.]+$/, '');
+  const fontFace = new FontFace(fontName, `url(${fontUrl})`);
+  try {
+    const loadedFont = await fontFace.load();
+    document.fonts.add(loadedFont);
+    renderTitleSlots();
+    updateCanvas();
+  } catch (err) {
+    console.error(`フォントの読み込みに失敗しました (${fontFileName}):`, err);
   }
 }
 
@@ -198,11 +226,31 @@ function applyConfig(config) {
     }));
   }
 
-  if (config.titleX !== undefined && config.titleY !== undefined) {
-    titleConfig = { x: config.titleX, y: config.titleY };
+  if (Array.isArray(config.titleList)) {
+    titleList = config.titleList;
+  } else if (config.titleText !== undefined) {
+    titleList = [{
+      text: config.titleText || 'タイトル',
+      font: config.titleFont || 'sans-serif',
+      size: config.titleSize || 70,
+      colorMode: config.titleColorMode || 'solid',
+      color: config.titleColor || '#facc15',
+      colorTop: config.titleColorTop || '#ffffff',
+      colorBottom: config.titleColorBottom || '#facc15',
+      strokeMode: config.strokeMode || 'single',
+      strokeColor: config.strokeColor || '#dc2626',
+      strokeWidth: config.strokeWidth || 12,
+      strokeColorInner: config.strokeColorInner || '#ffffff',
+      strokeWidthInner: config.strokeWidthInner || 6,
+      strokeColorOuter: config.strokeColorOuter || '#dc2626',
+      strokeWidthOuter: config.strokeWidthOuter || 14,
+      x: config.titleX || 1240,
+      y: config.titleY || 40
+    }];
   }
 
   renderLogoSlots();
+  renderTitleSlots();
   renderPokemonSlots();
 
   if (config.bg) {
@@ -223,44 +271,6 @@ function applyConfig(config) {
     syncColorInput('borderColor2', 'borderColor2Text');
   }
 
-  if (config.titleText !== undefined) document.getElementById('titleText').value = config.titleText;
-  if (config.titleFont) document.getElementById('titleFont').value = config.titleFont;
-  if (config.titleSize) document.getElementById('titleSize').value = config.titleSize;
-  
-  if (config.titleColorMode) document.getElementById('titleColorMode').value = config.titleColorMode;
-  if (config.titleColor) {
-    document.getElementById('titleColor').value = config.titleColor;
-    syncColorInput('titleColor', 'titleColorText');
-  }
-  if (config.titleColorTop) {
-    document.getElementById('titleColorTop').value = config.titleColorTop;
-    syncColorInput('titleColorTop', 'titleColorTopText');
-  }
-  if (config.titleColorBottom) {
-    document.getElementById('titleColorBottom').value = config.titleColorBottom;
-    syncColorInput('titleColorBottom', 'titleColorBottomText');
-  }
-
-  if (config.strokeMode) document.getElementById('strokeMode').value = config.strokeMode;
-  if (config.strokeColor) {
-    document.getElementById('strokeColor').value = config.strokeColor;
-    syncColorInput('strokeColor', 'strokeColorText');
-  }
-  if (config.strokeWidth !== undefined) document.getElementById('strokeWidth').value = config.strokeWidth;
-
-  if (config.strokeColorInner) {
-    document.getElementById('strokeColorInner').value = config.strokeColorInner;
-    syncColorInput('strokeColorInner', 'strokeColorInnerText');
-  }
-  if (config.strokeWidthInner !== undefined) document.getElementById('strokeWidthInner').value = config.strokeWidthInner;
-  if (config.strokeColorOuter) {
-    document.getElementById('strokeColorOuter').value = config.strokeColorOuter;
-    syncColorInput('strokeColorOuter', 'strokeColorOuterText');
-  }
-  if (config.strokeWidthOuter !== undefined) document.getElementById('strokeWidthOuter').value = config.strokeWidthOuter;
-
-  toggleTitleColorMode();
-  toggleStrokeMode();
   updateCanvas();
   alert('設定と画像を正常に適用しました！');
 }
@@ -336,22 +346,7 @@ async function exportConfig() {
     borderWidth: document.getElementById('borderWidth').value,
     borderColor1: document.getElementById('borderColor1').value,
     borderColor2: document.getElementById('borderColor2').value,
-    titleText: document.getElementById('titleText').value,
-    titleFont: document.getElementById('titleFont').value,
-    titleSize: document.getElementById('titleSize').value,
-    titleColorMode: document.getElementById('titleColorMode').value,
-    titleColor: document.getElementById('titleColor').value,
-    titleColorTop: document.getElementById('titleColorTop').value,
-    titleColorBottom: document.getElementById('titleColorBottom').value,
-    strokeMode: document.getElementById('strokeMode').value,
-    strokeColor: document.getElementById('strokeColor').value,
-    strokeWidth: document.getElementById('strokeWidth').value,
-    strokeColorInner: document.getElementById('strokeColorInner').value,
-    strokeWidthInner: document.getElementById('strokeWidthInner').value,
-    strokeColorOuter: document.getElementById('strokeColorOuter').value,
-    strokeWidthOuter: document.getElementById('strokeWidthOuter').value,
-    titleX: titleConfig.x,
-    titleY: titleConfig.y,
+    titleList: titleList,
     logoList: exportLogoList,
     pokemonList: exportPokemonList
   };
@@ -415,6 +410,7 @@ function renderLogoSlots() {
 function addLogoSlot() {
   logoList.push({ file: 'none', x: 100, y: 100, scale: 1.0 });
   renderLogoSlots();
+  updateCanvas();
 }
 
 function removeLogoSlot(index) {
@@ -425,6 +421,180 @@ function removeLogoSlot(index) {
 
 function updateLogo(index, key, value) {
   logoList[index][key] = value;
+  updateCanvas();
+}
+
+function renderTitleSlots() {
+  const container = document.getElementById('titleContainer');
+  container.innerHTML = '';
+
+  let fontOptionsHTML = `
+    <option value="sans-serif">ゴシック体 (sans-serif)</option>
+    <option value="serif">明朝体 (serif)</option>
+    <option value="'Impact', sans-serif">Impact (太字)</option>
+  `;
+  if (loadedFiles.font.length > 0) {
+    fontOptionsHTML += `<optgroup label="カスタムフォント (font/)">`;
+    loadedFiles.font.forEach(f => {
+      const fontName = f.name.replace(/\.[^/.]+$/, '');
+      fontOptionsHTML += `<option value="${fontName}">${fontName}</option>`;
+    });
+    fontOptionsHTML += `</optgroup>`;
+  }
+
+  titleList.forEach((item, index) => {
+    const card = document.createElement('div');
+    card.className = 'slot-card';
+    card.innerHTML = `
+      <div class="slot-title">
+        <span>タイトル #${index + 1}</span>
+        ${titleList.length > 1 ? `<button onclick="removeTitleSlot(${index})" class="btn-delete">削除</button>` : ''}
+      </div>
+      <div class="form-group">
+        <label>配信タイトル文字</label>
+        <input type="text" class="form-control" value="${item.text}" oninput="updateTitle(${index}, 'text', this.value)">
+      </div>
+      <div class="form-group">
+        <label>フォント</label>
+        <select class="form-control" onchange="updateTitle(${index}, 'font', this.value)">
+          ${fontOptionsHTML}
+        </select>
+      </div>
+      <div class="row">
+        <div class="col form-group">
+          <label>文字サイズ (px)</label>
+          <input type="number" class="form-control" value="${item.size}" oninput="updateTitle(${index}, 'size', parseInt(this.value) || 70)">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>文字色モード</label>
+        <select class="form-control" onchange="updateTitle(${index}, 'colorMode', this.value); renderTitleSlots(); updateCanvas();">
+          <option value="solid" ${item.colorMode === 'solid' ? 'selected' : ''}>単色</option>
+          <option value="gradient" ${item.colorMode === 'gradient' ? 'selected' : ''}>上下グラデーション</option>
+        </select>
+      </div>
+
+      ${item.colorMode === 'solid' ? `
+        <div class="form-group">
+          <label>文字色</label>
+          <div class="color-picker-group">
+            <input type="color" id="titleColor_${index}" value="${item.color}" onchange="syncColorInput('titleColor_${index}', 'titleColorText_${index}'); updateTitle(${index}, 'color', this.value);">
+            <input type="text" id="titleColorText_${index}" class="form-control" value="${item.color.toUpperCase()}" oninput="syncColorPicker('titleColorText_${index}', 'titleColor_${index}'); updateTitle(${index}, 'color', this.value);">
+          </div>
+        </div>
+      ` : `
+        <div class="row">
+          <div class="col form-group">
+            <label>上部カラー</label>
+            <div class="color-picker-group">
+              <input type="color" id="titleTop_${index}" value="${item.colorTop}" onchange="syncColorInput('titleTop_${index}', 'titleTopText_${index}'); updateTitle(${index}, 'colorTop', this.value);">
+              <input type="text" id="titleTopText_${index}" class="form-control" value="${item.colorTop.toUpperCase()}" oninput="syncColorPicker('titleTopText_${index}', 'titleTop_${index}'); updateTitle(${index}, 'colorTop', this.value);">
+            </div>
+          </div>
+          <div class="col form-group">
+            <label>下部カラー</label>
+            <div class="color-picker-group">
+              <input type="color" id="titleBottom_${index}" value="${item.colorBottom}" onchange="syncColorInput('titleBottom_${index}', 'titleBottomText_${index}'); updateTitle(${index}, 'colorBottom', this.value);">
+              <input type="text" id="titleBottomText_${index}" class="form-control" value="${item.colorBottom.toUpperCase()}" oninput="syncColorPicker('titleBottomText_${index}', 'titleBottom_${index}'); updateTitle(${index}, 'colorBottom', this.value);">
+            </div>
+          </div>
+        </div>
+      `}
+
+      <hr class="separator">
+
+      <div class="form-group">
+        <label>縁取りモード</label>
+        <select class="form-control" onchange="updateTitle(${index}, 'strokeMode', this.value); renderTitleSlots(); updateCanvas();">
+          <option value="none" ${item.strokeMode === 'none' ? 'selected' : ''}>なし</option>
+          <option value="single" ${item.strokeMode === 'single' ? 'selected' : ''}>一重縁取り</option>
+          <option value="double" ${item.strokeMode === 'double' ? 'selected' : ''}>二重縁取り</option>
+        </select>
+      </div>
+
+      ${item.strokeMode === 'single' ? `
+        <div class="row">
+          <div class="col form-group">
+            <label>縁取り色</label>
+            <div class="color-picker-group">
+              <input type="color" id="sColor_${index}" value="${item.strokeColor}" onchange="syncColorInput('sColor_${index}', 'sColorText_${index}'); updateTitle(${index}, 'strokeColor', this.value);">
+              <input type="text" id="sColorText_${index}" class="form-control" value="${item.strokeColor.toUpperCase()}" oninput="syncColorPicker('sColorText_${index}', 'sColor_${index}'); updateTitle(${index}, 'strokeColor', this.value);">
+            </div>
+          </div>
+          <div class="col form-group">
+            <label>縁取り太さ</label>
+            <input type="number" class="form-control" value="${item.strokeWidth}" min="0" oninput="updateTitle(${index}, 'strokeWidth', parseInt(this.value) || 0)">
+          </div>
+        </div>
+      ` : item.strokeMode === 'double' ? `
+        <div class="row">
+          <div class="col form-group">
+            <label>内側 縁取り色</label>
+            <div class="color-picker-group">
+              <input type="color" id="innerCol_${index}" value="${item.strokeColorInner}" onchange="syncColorInput('innerCol_${index}', 'innerColText_${index}'); updateTitle(${index}, 'strokeColorInner', this.value);">
+              <input type="text" id="innerColText_${index}" class="form-control" value="${item.strokeColorInner.toUpperCase()}" oninput="syncColorPicker('innerColText_${index}', 'innerCol_${index}'); updateTitle(${index}, 'strokeColorInner', this.value);">
+            </div>
+          </div>
+          <div class="col form-group">
+            <label>内側 太さ</label>
+            <input type="number" class="form-control" value="${item.strokeWidthInner}" min="0" oninput="updateTitle(${index}, 'strokeWidthInner', parseInt(this.value) || 0)">
+          </div>
+        </div>
+        <div class="row">
+          <div class="col form-group">
+            <label>外側 縁取り色</label>
+            <div class="color-picker-group">
+              <input type="color" id="outerCol_${index}" value="${item.strokeColorOuter}" onchange="syncColorInput('outerCol_${index}', 'outerColText_${index}'); updateTitle(${index}, 'strokeColorOuter', this.value);">
+              <input type="text" id="outerColText_${index}" class="form-control" value="${item.strokeColorOuter.toUpperCase()}" oninput="syncColorPicker('outerColText_${index}', 'outerCol_${index}'); updateTitle(${index}, 'strokeColorOuter', this.value);">
+            </div>
+          </div>
+          <div class="col form-group">
+            <label>外側 太さ</label>
+            <input type="number" class="form-control" value="${item.strokeWidthOuter}" min="0" oninput="updateTitle(${index}, 'strokeWidthOuter', parseInt(this.value) || 0)">
+          </div>
+        </div>
+      ` : ''}
+    `;
+
+    const selectElem = card.querySelector('select[onchange*="font"]');
+    if (selectElem) selectElem.value = item.font;
+
+    container.appendChild(card);
+  });
+}
+
+function addTitleSlot() {
+  titleList.push({
+    text: '新しいタイトル',
+    font: 'sans-serif',
+    size: 60,
+    colorMode: 'solid',
+    color: '#ffffff',
+    colorTop: '#ffffff',
+    colorBottom: '#facc15',
+    strokeMode: 'single',
+    strokeColor: '#000000',
+    strokeWidth: 10,
+    strokeColorInner: '#ffffff',
+    strokeWidthInner: 6,
+    strokeColorOuter: '#000000',
+    strokeWidthOuter: 12,
+    x: 1240,
+    y: 140 + (titleList.length * 80)
+  });
+  renderTitleSlots();
+  updateCanvas();
+}
+
+function removeTitleSlot(index) {
+  titleList.splice(index, 1);
+  renderTitleSlots();
+  updateCanvas();
+}
+
+function updateTitle(index, key, value) {
+  titleList[index][key] = value;
   updateCanvas();
 }
 
@@ -549,76 +719,77 @@ async function updateCanvas() {
     }
   }
 
-  // --- タイトル描画処理 ---
-  const title = document.getElementById('titleText').value;
-  if (title) {
-    const fontSize = parseInt(document.getElementById('titleSize').value) || 70;
-    const font = document.getElementById('titleFont').value;
+  // --- 複数タイトルの描画処理 ---
+  for (let i = 0; i < titleList.length; i++) {
+    const tItem = titleList[i];
+    if (!tItem.text) continue;
+
+    const fontSize = tItem.size || 70;
     
-    ctx.font = `bold ${fontSize}px ${font}`;
+    // フォント名が総称ファミリー（sans-serif / serif）の場合は対応するフォントスタックを構成
+    let fontString = tItem.font;
+    if (tItem.font === 'serif') {
+      fontString = '"Times New Roman", "Yu Mincho", "MS Mincho", serif';
+    } else if (tItem.font === 'sans-serif') {
+      fontString = '"Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif';
+    } else if (!tItem.font.includes(',') && !tItem.font.includes("'")) {
+      fontString = `"${tItem.font}", sans-serif`;
+    }
+
+    ctx.font = `bold ${fontSize}px ${fontString}`;
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
 
-    // 当たり判定用にテキストの幅を計測
-    const metrics = ctx.measureText(title);
+    const metrics = ctx.measureText(tItem.text);
     const textWidth = metrics.width;
     const textHeight = fontSize;
 
-    // titleConfig.x, y は右上の基準位置として扱うため、バウンディングボックスの左上座標に変換してヒットボックス登録
-    const boxX = titleConfig.x - textWidth;
-    const boxY = titleConfig.y;
-
-    const strokeMode = document.getElementById('strokeMode').value;
+    const boxX = tItem.x - textWidth;
+    const boxY = tItem.y;
 
     // 1. 縁取りの描画
-    if (strokeMode === 'single') {
-      const sColor = document.getElementById('strokeColor').value;
-      const sWidth = parseInt(document.getElementById('strokeWidth').value) || 0;
+    if (tItem.strokeMode === 'single') {
+      const sWidth = tItem.strokeWidth || 0;
       if (sWidth > 0) {
-        ctx.strokeStyle = sColor;
+        ctx.strokeStyle = tItem.strokeColor;
         ctx.lineWidth = sWidth;
         ctx.lineJoin = 'round';
-        ctx.strokeText(title, titleConfig.x, titleConfig.y);
+        ctx.strokeText(tItem.text, tItem.x, tItem.y);
       }
-    } else if (strokeMode === 'double') {
-      const innerColor = document.getElementById('strokeColorInner').value;
-      const innerWidth = parseInt(document.getElementById('strokeWidthInner').value) || 0;
-      const outerColor = document.getElementById('strokeColorOuter').value;
-      const outerWidth = parseInt(document.getElementById('strokeWidthOuter').value) || 0;
+    } else if (tItem.strokeMode === 'double') {
+      const innerW = tItem.strokeWidthInner || 0;
+      const outerW = tItem.strokeWidthOuter || 0;
 
-      if (outerWidth > 0) {
-        ctx.strokeStyle = outerColor;
-        ctx.lineWidth = outerWidth + innerWidth;
+      if (outerW > 0) {
+        ctx.strokeStyle = tItem.strokeColorOuter;
+        ctx.lineWidth = outerW + innerW;
         ctx.lineJoin = 'round';
-        ctx.strokeText(title, titleConfig.x, titleConfig.y);
+        ctx.strokeText(tItem.text, tItem.x, tItem.y);
       }
-      if (innerWidth > 0) {
-        ctx.strokeStyle = innerColor;
-        ctx.lineWidth = innerWidth;
+      if (innerW > 0) {
+        ctx.strokeStyle = tItem.strokeColorInner;
+        ctx.lineWidth = innerW;
         ctx.lineJoin = 'round';
-        ctx.strokeText(title, titleConfig.x, titleConfig.y);
+        ctx.strokeText(tItem.text, tItem.x, tItem.y);
       }
     }
 
     // 2. メイン文字色の描画
-    const colorMode = document.getElementById('titleColorMode').value;
-    if (colorMode === 'solid') {
-      ctx.fillStyle = document.getElementById('titleColor').value;
-      ctx.fillText(title, titleConfig.x, titleConfig.y);
-    } else if (colorMode === 'gradient') {
-      const topColor = document.getElementById('titleColorTop').value;
-      const bottomColor = document.getElementById('titleColorBottom').value;
-      const grad = ctx.createLinearGradient(0, titleConfig.y, 0, titleConfig.y + fontSize);
-      grad.addColorStop(0, topColor);
-      grad.addColorStop(1, bottomColor);
+    if (tItem.colorMode === 'solid') {
+      ctx.fillStyle = tItem.color;
+      ctx.fillText(tItem.text, tItem.x, tItem.y);
+    } else if (tItem.colorMode === 'gradient') {
+      const grad = ctx.createLinearGradient(0, tItem.y, 0, tItem.y + fontSize);
+      grad.addColorStop(0, tItem.colorTop);
+      grad.addColorStop(1, tItem.colorBottom);
 
       ctx.fillStyle = grad;
-      ctx.fillText(title, titleConfig.x, titleConfig.y);
+      ctx.fillText(tItem.text, tItem.x, tItem.y);
     }
 
-    // タイトル移動用のヒットボックスを登録（余白を持たせて掴みやすくする）
     newHitBoxes.push({
       type: 'title',
+      index: i,
       x: boxX - 10,
       y: boxY - 5,
       w: textWidth + 20,
@@ -662,9 +833,9 @@ function setupDragEvents() {
         isDragging = true;
         dragTarget = { type: box.type, index: box.index };
         if (box.type === 'title') {
-          // タイトルの場合はマウス位置と基準位置(titleConfig)の差分を保持
-          dragOffsetX = titleConfig.x - mouseX;
-          dragOffsetY = titleConfig.y - mouseY;
+          const t = titleList[box.index];
+          dragOffsetX = t.x - mouseX;
+          dragOffsetY = t.y - mouseY;
         } else {
           dragOffsetX = mouseX - box.x;
           dragOffsetY = mouseY - box.y;
@@ -683,8 +854,9 @@ function setupDragEvents() {
     const mouseY = (e.clientY - rect.top) * scaleY;
 
     if (dragTarget.type === 'title') {
-      titleConfig.x = mouseX + dragOffsetX;
-      titleConfig.y = mouseY + dragOffsetY;
+      const t = titleList[dragTarget.index];
+      t.x = mouseX + dragOffsetX;
+      t.y = mouseY + dragOffsetY;
     } else if (dragTarget.type === 'logo') {
       logoList[dragTarget.index].x = mouseX - dragOffsetX;
       logoList[dragTarget.index].y = mouseY - dragOffsetY;
